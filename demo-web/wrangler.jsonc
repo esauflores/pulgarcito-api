@@ -1,0 +1,5 @@
+{
+  "name": "pulgarcito-demo-web",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["nodejs_compat"]
+}

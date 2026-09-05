@@ -15,7 +15,7 @@ const { title } = Astro.props;
   </head>
   <body class="flex h-full flex-col bg-zinc-950 text-zinc-50 antialiased">
     <header class="shrink-0 border-b border-zinc-800">
-      <Nav client:load />
+      <Nav client:only="react" />
     </header>
     <main class="min-h-0 flex-1">
       <slot />

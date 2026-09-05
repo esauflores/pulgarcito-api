@@ -1,11 +1,11 @@
 // @ts-check
-import node from "@astrojs/node";
+import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
 export default defineConfig({
-  adapter: node({ mode: "standalone" }),
+  adapter: cloudflare(),
   integrations: [react()],
   vite: { plugins: [tailwindcss()] },
 });

@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "tsx watch --import ./alias-hook.mjs src/server.ts",
     "start": "tsx --import ./alias-hook.mjs src/server.ts",
+    "dev:cf": "wrangler dev",
+    "deploy": "wrangler deploy",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
@@ -46,6 +48,7 @@
     "oxlint": "^1.76.0",
     "tsx": "^4.20.5",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.129.0"
   }
 }

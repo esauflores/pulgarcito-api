@@ -3,5 +3,4 @@
 
 interface ImportMetaEnv {
   readonly PUBLIC_API_URL: string;
-  readonly PULGARCITO_API_KEY: string;
 }

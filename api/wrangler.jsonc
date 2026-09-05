@@ -1,0 +1,14 @@
+{
+  "name": "pulgarcito-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "API_ORIGIN": "http://localhost:3000",
+    "WEB_ORIGIN": "http://localhost:4321",
+    "PORT": "3000",
+    "DB_PROVIDER": "neon",
+    "AUTH_PROVIDER": "better-auth",
+    "LOG_LEVEL": "info",
+  },
+}
