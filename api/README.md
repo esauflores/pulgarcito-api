@@ -6,7 +6,7 @@ Hono + Drizzle + Neon Postgres API for Pulgarcito — places, search, and routin
 
 | Layer | Choice |
 | --- | --- |
-| Framework | Hono (`OpenAPIHono`) on Node (`@hono/node-server`) |
+| Framework | Hono (`OpenAPIHono`) — runs on Node (`@hono/node-server`) or as a Cloudflare Worker, unchanged (`export default app` is already a valid Workers fetch handler) |
 | Database | Neon Postgres (`drizzle-orm/neon-http`) + `pgvector` |
 | ORM | Drizzle ORM / Drizzle Kit |
 | Auth | better-auth (email/password + API keys) |
@@ -47,7 +47,7 @@ See `src/env.ts` for the full `Bindings` type. Copy `.env.example` to `.env`:
 | `BETTER_AUTH_SECRET` | 32+ char random secret. |
 | `AUTH_PROVIDER` | `better-auth` (only option currently; kept as a switch for consistency with `DB_PROVIDER`). |
 | `MISTRAL_API_KEY` | Used for embeddings (`/places/search` and `ingest:embed`). |
-| `API_ORIGIN` / `WEB_ORIGIN` | Used for better-auth's `baseURL` and CORS. |
+| `API_ORIGIN` / `WEB_ORIGIN` | Used for better-auth's `baseURL`/`trustedOrigins` and CORS on `/api/auth/*` only — see CORS below. |
 | `PORT` | HTTP port, default `3000`. |
 | `LOG_LEVEL` | `info` / `warn` / `error` / `silent`. |
 
@@ -71,6 +71,13 @@ There is no email provider — sign-up doesn't send a verification email, and AP
 ## Auth
 
 `middleware/auth.ts`'s `requireApiKey` calls better-auth's `verifyApiKey` and lets the request through if the key is valid — that's the whole check. There used to be an additional "email verified" gate, but it required a real transactional-email provider to ever pass, so it's gone; a valid API key is sufficient.
+
+## CORS
+
+Split by how each route authenticates, not applied blanket:
+
+- `/api/auth/*` issues session cookies (`credentials: true`), so its CORS `origin` is pinned to a fixed value (`WEB_ORIGIN`, falling back to `API_ORIGIN`) rather than reflecting whatever `Origin` header the request sent. Reflecting the origin — or `*`, which browsers reject outright alongside credentials — would let any site read back sign-in/session responses for a logged-in visitor.
+- `/api/v1/*` is authenticated by the `X-API-Key` header, not cookies, so there's no credentialed-request risk. Its CORS `origin` is `*` — it's a public API meant to be callable from anywhere.
 
 ## Ingest pipeline
 
@@ -108,11 +115,16 @@ pnpm test
 
 49 tests. `DB_PROVIDER=pglite` in `.env.test` runs the same Drizzle code against an in-memory Postgres (PGlite) with `pgcrypto`/`pg_trgm`/`vector` extensions registered — real migrations, real queries, no mocks. `helpers/test/better-auth.ts` does real signups against better-auth, not fixtures.
 
-## Docker
+## Deploy
+
+Cloudflare Workers is the only deployment target — no Docker.
 
 ```bash
-docker build -t pulgarcito-api .
-docker run -p 3000:3000 --env-file .env pulgarcito-api
+pnpm dlx wrangler login                # once, if not already authenticated
+pnpm dlx wrangler secret bulk .dev.vars   # pushes DATABASE_URL, MISTRAL_API_KEY (and a real BETTER_AUTH_SECRET — see below)
+pnpm deploy                            # wrangler deploy --env production
 ```
 
-Or via the root `docker-compose.yml`, which also wires `demo-web`.
+`wrangler.jsonc`'s top-level `vars` are the `wrangler dev` defaults (localhost origins); `env.production.vars` holds the real deployed URLs — Workers vars aren't inherited across named environments, so both blocks spell out every key in full. `.dev.vars`'s `BETTER_AUTH_SECRET` is a placeholder (`replace-with-a-32-plus-character-random-secret`) — generate a real one and `wrangler secret put BETTER_AUTH_SECRET` separately before relying on this in production; `wrangler secret bulk` will otherwise push the placeholder verbatim.
+
+`demo-web` reaches this Worker through a [service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/), not a public URL — see [`demo-web/README.md`](../demo-web/README.md#deploy-cloudflare-workers).

@@ -50,8 +50,6 @@ Ingest pipeline (`pnpm ingest:fetch` → `pnpm ingest:load` → `pnpm ingest:emb
 
 ## Running it
 
-```bash
-docker compose up --build
-```
+This is the `cloudflare` branch — deploy-only, not meant to be run interactively. For local development, switch to `master`: same app, `@astrojs/node` instead of the Cloudflare adapter, plain `pnpm dev` in each project, no Cloudflare-specific setup.
 
-`api` on `:3000`, `demo-web` on `:4321`. Each project also has its own `.env.example` — copy to `.env` and fill in `DATABASE_URL` (Neon Postgres with `pgvector`) and `MISTRAL_API_KEY` for `api`, and `PULGARCITO_API_KEY` for `demo-web`'s proxy.
+This branch deploys both projects to Cloudflare Workers instead. Each project's own README covers its deploy steps: [`api/README.md`](api/README.md#deploy), [`demo-web/README.md`](demo-web/README.md#deploy-cloudflare-workers).
