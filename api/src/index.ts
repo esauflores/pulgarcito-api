@@ -24,14 +24,23 @@ const app = new OpenAPIHono<{ Bindings: Bindings }>();
 app.notFound(notFound);
 app.onError(onError);
 
+// /api/auth/* issues session cookies (credentials: true) — CORS must pin
+// this to the known frontend origin. Reflecting any origin here (or "*",
+// which browsers reject outright alongside credentials) would let any site
+// read back sign-in/session responses for a logged-in visitor.
 app.use(
-  "*",
+  "/api/auth/*",
   cors({
     origin: (_origin, c) => c.env.WEB_ORIGIN ?? c.env.API_ORIGIN,
     allowHeaders: ["Accept", "Content-Type", "X-API-Key", "Authorization"],
     credentials: true,
   }),
 );
+
+// /api/v1/* is authenticated by the X-API-Key header, not cookies, so
+// there's no credentialed-request risk — it's a public API meant to be
+// callable from any origin.
+app.use("/api/v1/*", cors({ origin: "*", allowHeaders: ["Accept", "Content-Type", "X-API-Key"] }));
 app.use(secureHeaders({ crossOriginResourcePolicy: "cross-origin" }));
 
 const healthzRoute = createRoute({

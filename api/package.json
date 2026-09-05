@@ -6,7 +6,7 @@
     "dev": "tsx watch --import ./alias-hook.mjs src/server.ts",
     "start": "tsx --import ./alias-hook.mjs src/server.ts",
     "dev:cf": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --env production",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",

@@ -1,8 +1,13 @@
 {
   "name": "pulgarcito-api",
+  "account_id": "c06915421acba8ce1895de01fda2bfaf",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-04",
   "compatibility_flags": ["nodejs_compat"],
+  // Local-dev defaults, used by `wrangler dev`. `pnpm deploy` runs
+  // `wrangler deploy --env production`, which uses env.production.vars
+  // below instead — Workers vars aren't inherited across named
+  // environments, so both need every key spelled out in full.
   "vars": {
     "API_ORIGIN": "http://localhost:3000",
     "WEB_ORIGIN": "http://localhost:4321",
@@ -10,5 +15,18 @@
     "DB_PROVIDER": "neon",
     "AUTH_PROVIDER": "better-auth",
     "LOG_LEVEL": "info",
+  },
+  "env": {
+    "production": {
+      "name": "pulgarcito-api",
+      "vars": {
+        "API_ORIGIN": "https://pulgarcito-api.redesinformaticas.workers.dev",
+        "WEB_ORIGIN": "https://pulgarcito-demo-web.redesinformaticas.workers.dev",
+        "PORT": "3000",
+        "DB_PROVIDER": "neon",
+        "AUTH_PROVIDER": "better-auth",
+        "LOG_LEVEL": "info",
+      },
+    },
   },
 }
