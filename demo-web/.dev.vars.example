@@ -1,5 +1,1 @@
 PULGARCITO_API_KEY=replace-with-a-verified-user-api-key
-
-# Optional — see api-proxy.ts. Only needed when the proxy's target differs
-# from PUBLIC_API_URL, e.g. Docker Compose's "http://api:3000".
-# INTERNAL_API_URL=http://api:3000

@@ -194,7 +194,7 @@ export function PulgarcitoMap() {
       if (q) params.set("q", q);
       const res = await fetch(`/api/places?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = (await res.json()) as { results?: Place[]; total?: number };
       setPlaces(data.results ?? []);
       setTotal(data.total ?? 0);
     } catch (e) {
@@ -211,7 +211,7 @@ export function PulgarcitoMap() {
       const params = new URLSearchParams({ from: routeFrom, to: routeTo });
       const res = await fetch(`/api/route?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRoute(await res.json());
+      setRoute((await res.json()) as RouteResult);
     } catch (e) {
       setRouteError(e instanceof Error ? e.message : "routing failed");
       setRoute(null);

@@ -1,21 +1,19 @@
+import { env } from "cloudflare:workers";
+
 // Proxies browser requests to the pulgarcito API server-side, so the
 // X-API-Key never reaches the client.
 //
-// Uses process.env (not import.meta.env) for both vars so they're read at
-// request time, not baked in at build time — required on Cloudflare Workers
-// (nodejs_compat exposes wrangler vars/secrets via process.env; import.meta.env
-// would freeze the secret into the built bundle instead) and also lets
-// INTERNAL_API_URL differ per environment without a rebuild (e.g.
-// "http://api:3000" inside Docker Compose vs. "http://localhost:3000" for
-// local dev), unlike PUBLIC_API_URL, which the browser uses directly and
-// must be a stable, host-reachable URL known at build time.
+// Routes through the "API" service binding (see wrangler.jsonc) rather than
+// a plain fetch() to the api's public URL: two Workers on the same
+// *.workers.dev zone can't fetch() each other directly — Cloudflare blocks
+// it as a same-zone loop (error 1042). A service binding is also faster,
+// since it skips the public network round-trip entirely.
 export async function proxyApi(path: string, search: URLSearchParams): Promise<Response> {
-  const baseUrl = process.env.INTERNAL_API_URL ?? import.meta.env.PUBLIC_API_URL;
-  const target = new URL(path, baseUrl);
+  const target = new URL(path, "https://pulgarcito-api.internal");
   target.search = search.toString();
 
-  const res = await fetch(target, {
-    headers: { "X-API-Key": process.env.PULGARCITO_API_KEY ?? "" },
+  const res = await env.API.fetch(target, {
+    headers: { "X-API-Key": env.PULGARCITO_API_KEY },
   });
   const body = await res.text();
   return new Response(body, { status: res.status, headers: { "Content-Type": "application/json" } });
