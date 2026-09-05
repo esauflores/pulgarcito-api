@@ -1,6 +1,6 @@
 // External
 import type { Context } from "hono";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // App
 import type { Bindings } from "@/env";
@@ -11,7 +11,7 @@ import { requireApiKey } from "./auth";
 
 // Test Utilities
 import { makeKey, makeUserWithKey } from "@/helpers/test/better-auth";
-import { resetDatabase } from "@/helpers/test/pglite";
+import { resetDatabase, truncateAllTables } from "@/helpers/test/pglite";
 
 // Helper Functions
 const makeContext = (apiKeyHeader: string | undefined) =>
@@ -25,8 +25,12 @@ const makeContext = (apiKeyHeader: string | undefined) =>
 const makeNext = () => vi.fn().mockResolvedValue(undefined);
 
 describe("requireApiKey", () => {
-  beforeEach(async () => {
+  beforeAll(async () => {
     await resetDatabase();
+  });
+
+  beforeEach(async () => {
+    await truncateAllTables();
   });
 
   it("401 Missing API Key when X-API-Key header is absent", async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 // App
 import { testBindings } from "@/env";
@@ -8,9 +8,13 @@ import { place } from "@/db/schema";
 import { db } from "@/infrastructure/db";
 
 // Test Utilities
-import { resetDatabase } from "@/helpers/test/pglite";
+import { resetDatabase, truncateAllTables } from "@/helpers/test/pglite";
 
 import { placesRoutes } from "./routes";
+
+beforeAll(async () => {
+  await resetDatabase();
+});
 
 const seedPlace = async (overrides: Partial<typeof place.$inferInsert> = {}) => {
   const [row] = await db(testBindings)
@@ -32,7 +36,7 @@ const seedPlace = async (overrides: Partial<typeof place.$inferInsert> = {}) => 
 
 describe("GET /", () => {
   beforeEach(async () => {
-    await resetDatabase();
+    await truncateAllTables();
   });
 
   it("returns only public + verified places", async () => {
@@ -89,7 +93,7 @@ describe("GET /", () => {
 
 describe("GET /{id}", () => {
   beforeEach(async () => {
-    await resetDatabase();
+    await truncateAllTables();
   });
 
   it("returns a public verified place", async () => {
