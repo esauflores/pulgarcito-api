@@ -1,0 +1,24 @@
+---
+import "../styles/global.css";
+import { Nav } from "../components/Nav";
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" class="dark h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+  </head>
+  <body class="flex h-full flex-col bg-zinc-950 text-zinc-50 antialiased">
+    <header class="shrink-0 border-b border-zinc-800">
+      <Nav client:load />
+    </header>
+    <main class="min-h-0 flex-1">
+      <slot />
+    </main>
+  </body>
+</html>

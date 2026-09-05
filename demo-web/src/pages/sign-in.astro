@@ -1,0 +1,10 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { SignInForm } from "../components/SignInForm";
+---
+
+<Layout title="Sign in">
+  <div class="flex h-full items-center justify-center p-6">
+    <SignInForm client:load />
+  </div>
+</Layout>

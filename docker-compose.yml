@@ -1,0 +1,23 @@
+services:
+  api:
+    build: ./api
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./api/.env
+    restart: unless-stopped
+
+  demo-web:
+    build: ./demo-web
+    ports:
+      - "4321:4321"
+    env_file:
+      - ./demo-web/.env
+    environment:
+      # Compose service name — reachable from inside the demo-web container.
+      # PUBLIC_API_URL in demo-web/.env stays host-reachable (e.g.
+      # http://localhost:3000) since the browser uses that one directly.
+      INTERNAL_API_URL: http://api:3000
+    depends_on:
+      - api
+    restart: unless-stopped
