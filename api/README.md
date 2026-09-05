@@ -1,467 +1,118 @@
-# API Template
+# api
 
-A production-oriented Hono API template focused on clean boundaries, explicit infrastructure, and testability.
+Hono + Drizzle + Neon Postgres API for Pulgarcito — places, search, and routing over El Salvador tourism data ingested from OpenStreetMap.
 
-The goal is to provide a simple foundation that can grow without unnecessary complexity.
+## Stack
 
----
+| Layer | Choice |
+| --- | --- |
+| Framework | Hono (`OpenAPIHono`) on Node (`@hono/node-server`) |
+| Database | Neon Postgres (`drizzle-orm/neon-http`) + `pgvector` |
+| ORM | Drizzle ORM / Drizzle Kit |
+| Auth | better-auth (email/password + API keys) |
+| Search embeddings | Mistral (`mistral-embed`, 1024-dim) via Vercel AI SDK |
+| Geo | `@turf/boolean-point-in-polygon` (department/municipality derivation) |
+| Testing | Vitest + PGlite (`pgvector` extension via `@electric-sql/pglite-pgvector`) |
 
-# Architecture
-
-The project follows a modular architecture with clear boundaries:
+## Structure
 
 ```
 src/
-├── db/
+├── db/schema/          # Drizzle table definitions (auth/*, pulgarcito/places.ts)
 ├── features/
-├── helpers/
+│   ├── places/          # GET /, /search, /{id} — routes + query filters + RRF merge
+│   └── route/            # GET / — OSRM proxy
+├── ingest/              # OSM Overpass → normalize → upsert → embed (see below)
 ├── infrastructure/
-├── middleware/
-├── env.ts
-├── index.ts
-└── server.ts
+│   ├── ai/               # Mistral embedding calls
+│   ├── auth/             # better-auth config
+│   └── db/                # neon.ts (prod) / pglite.ts (tests)
+├── middleware/          # requireApiKey, error handling
+├── helpers/             # coords.ts (lat,lng parsing), retry.ts (backoff), test/*
+├── env.ts               # Bindings type — source of truth for env vars
+├── index.ts             # app composition (tested via app.request, never listens)
+└── server.ts            # process entry — loads .env, listens on PORT
 ```
 
-## Folder Responsibilities
+`@/` maps to `src/` (tsconfig + Vitest + `alias-hook.mjs` for `tsx`).
 
-### `db/`
+## Environment
 
-Contains database schema definitions.
+See `src/env.ts` for the full `Bindings` type. Copy `.env.example` to `.env`:
 
-Responsibilities:
+| Var | Notes |
+| --- | --- |
+| `DATABASE_URL` | Neon Postgres connection string. Needs `pgvector` available (`CREATE EXTENSION vector`). |
+| `DB_PROVIDER` | `neon` (default) or `pglite` — set to `pglite` in `.env.test`. |
+| `BETTER_AUTH_SECRET` | 32+ char random secret. |
+| `AUTH_PROVIDER` | `better-auth` (only option currently; kept as a switch for consistency with `DB_PROVIDER`). |
+| `MISTRAL_API_KEY` | Used for embeddings (`/places/search` and `ingest:embed`). |
+| `API_ORIGIN` / `WEB_ORIGIN` | Used for better-auth's `baseURL` and CORS. |
+| `PORT` | HTTP port, default `3000`. |
+| `LOG_LEVEL` | `info` / `warn` / `error` / `silent`. |
 
-- Drizzle schema definitions
-- Database table structures
-- Database types
+There is no email provider — sign-up doesn't send a verification email, and API access only requires a valid API key (see Auth below).
 
----
+## Routes
 
-### `infrastructure/`
+`/api/v1/*` requires an `X-API-Key` header (from a signed-up better-auth user's key). Everything else is open.
 
-Contains external integrations and resources.
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/healthz` | `{ ok: true }` |
+| `GET` | `/doc` | OpenAPI JSON (app routes + better-auth's, merged in `infrastructure/openapi.ts`) |
+| `GET` | `/docs` | Swagger UI |
+| `ALL` | `/api/auth/*` | better-auth — sign-up, sign-in, session, API key CRUD |
+| `GET` | `/api/v1/places` | Browse. `type`, `category`, `department`, `near=lat,lng`, `radius_km` (default 25), `limit` (≤1000), `offset` |
+| `GET` | `/api/v1/places/search` | Requires `q`. Fuzzy (`ILIKE`) + semantic (`pgvector` cosine) legs merged via Reciprocal Rank Fusion. Same filters as browse; `limit` capped at 50 |
+| `GET` | `/api/v1/places/{id}` | 404 unless `visibility='public' AND verified=true` |
+| `GET` | `/api/v1/route` | Proxies the public OSRM server. `from`, `to` (`lat,lng`), `profile` (`car`\|`foot`\|`bike`) |
 
-Example:
+## Auth
 
-```
-src/infrastructure/
-├── auth/   # Authentication providers (Better Auth, OAuth, etc.)
-├── db/     # Database clients and ORM configuration (Drizzle + PostgreSQL)
-└── email/  # Email providers and delivery services (Emailit, etc.)
-```
+`middleware/auth.ts`'s `requireApiKey` calls better-auth's `verifyApiKey` and lets the request through if the key is valid — that's the whole check. There used to be an additional "email verified" gate, but it required a real transactional-email provider to ever pass, so it's gone; a valid API key is sufficient.
 
-Responsibilities:
+## Ingest pipeline
 
-- Authentication providers
-- Database clients
-- Email providers
-- External APIs
-- Third-party services
+Nothing in `server.ts` or the Dockerfile calls these — deploying the API does not populate or refresh data. They're three manual commands you run yourself, against whatever `DATABASE_URL`/`MISTRAL_API_KEY` are in scope, each independently re-runnable:
 
-Application code depends on infrastructure modules instead of creating external clients directly.
-
-Example:
-
-```ts
-import { auth } from "@/infrastructure/auth";
-```
-
-This allows tests to replace production implementations with fixtures.
-
----
-
-### `middleware/`
-
-Contains reusable HTTP concerns.
-
-Example:
-
-```
-src/middleware/
-├── auth.ts
-└── errors.ts
+```bash
+pnpm ingest:fetch   # OSM Overpass → normalize → write ingest-data/places.snapshot.json (no DB)
+pnpm ingest:load    # read the snapshot → upsert into `place`, keyed on (source, source_id)
+pnpm ingest:embed   # backfill `embedding` for public places that don't have one yet
 ```
 
-Responsibilities:
+- `overpass.ts` queries three node kinds (`tourist_place`, `restaurant`, `business`) over all of El Salvador, with retry/backoff on 429/504.
+- `normalizer.ts` maps OSM tags → the `place` schema (category lookup table, kind classification, website-only contact extraction — no phone/email/social, deliberately).
+- `geo.ts` derives `department`/`municipality` from `lat`/`lng` via a point-in-polygon lookup against GADM admin-2 boundaries (`src/ingest/data/el_salvador_municipalities.geojson`) — OSM has no admin-department tag, and its `addr:city` coverage alone is only ~20%.
+- `load.ts` upserts in batches of 500; re-ingesting refreshes OSM/derived fields but leaves `visibility`/`verified`/`qualityScore` alone (those may be hand-adjusted moderation decisions).
+- Every DB write and Overpass/Mistral call goes through `helpers/retry.ts` (`withRetry` — exponential backoff, same pattern everywhere).
 
-- Authentication
-- Authorization
-- Error handling
-- Request lifecycle logic
+## Database
 
----
+Schema lives in `src/db/schema/pulgarcito/places.ts` (single `place` table — 22 columns, GIN indexes on `keywords` and trigram-indexed `name`/`description`, HNSW on `embedding`). Drizzle Kit manages migrations:
 
-### `features/`
-
-Contains business functionality.
-
-Each feature owns its:
-
-- Routes
-- Handlers
-- Services
-- Types
-- Domain logic
-
-Example:
-
-```
-features/
-└── widgets/
-    ├── routes.ts
-    ├── service.ts
-    └── types.ts
+```bash
+pnpm db:generate   # after changing schema
+pnpm db:migrate    # apply to DATABASE_URL
+pnpm db:studio     # browse the DB
 ```
 
-Features should not create infrastructure clients directly.
+Migrations aren't self-contained — `CREATE EXTENSION pgcrypto/vector/pg_trgm` is hand-added to the first migration since Drizzle Kit doesn't manage extensions.
 
----
+## Testing
 
-### `helpers/`
-
-Contains testing utilities.
-
-Structure:
-
-```
-helpers/
-└── test/
-    ├── better-auth.ts
-    └── pglite.ts
+```bash
+pnpm test
 ```
 
-Responsibilities:
+49 tests. `DB_PROVIDER=pglite` in `.env.test` runs the same Drizzle code against an in-memory Postgres (PGlite) with `pgcrypto`/`pg_trgm`/`vector` extensions registered — real migrations, real queries, no mocks. `helpers/test/better-auth.ts` does real signups against better-auth, not fixtures.
 
-- Test database reset/migration
-- Authentication test helpers (real signups, not mocks)
+## Docker
 
----
-
-# Application Entry Point
-
-This is a Node process (`@hono/node-server` + `tsx`), not a Cloudflare worker.
-
-`src/index.ts` composes the application. Tests import it and call `app.request` — they never listen.
-
-Responsibilities:
-
-- Create Hono instance
-- Register global middleware
-- Register routes
-- Configure authentication
-- Configure error handling
-
-The entry point should only compose the application and avoid business logic.
-
-`src/server.ts` is the process: load `.env`, build `bindings()`, listen on `PORT` (default `3000`).
-
-`@/` maps to `src/` (`tsconfig` + Vitest + `alias-hook.mjs` for `tsx`).
-
-Request flow:
-
-```
-Request
-    |
-    v
-Global Middleware
-    |
-    v
-Public Routes
-    |
-    v
-Protected Middleware
-    |
-    v
-Feature Routes
-    |
-    v
-Error Handler
+```bash
+docker build -t pulgarcito-api .
+docker run -p 3000:3000 --env-file .env pulgarcito-api
 ```
 
----
-
-# API Documentation
-
-Routes registered with `.openapi()` (via `OpenAPIHono`) generate an OpenAPI spec automatically — no hand-written docs to keep in sync.
-
-- `GET /doc` — the merged OpenAPI JSON (app routes + Better Auth's routes, see `src/infrastructure/openapi.ts`)
-- `GET /docs` — Swagger UI, reading from `/doc`
-
----
-
-# Authentication
-
-Authentication is handled using Better Auth.
-
-Production configuration lives in:
-
-```
-src/infrastructure/auth/better-auth.ts
-```
-
-Responsibilities:
-
-- Email/password authentication
-- Email verification
-- API key generation
-- Database adapter configuration
-
-Protected API routes use:
-
-```
-src/middleware/auth.ts
-```
-
-Flow:
-
-```
-Client
-    |
-    | X-API-Key
-    v
-Validate API key
-    |
-    v
-Find owning user
-    |
-    v
-Check email verification
-    |
-    v
-Allow request
-```
-
-Only verified users can access:
-
-```
-/api/v1/*
-```
-
----
-
-# Database
-
-The project uses:
-
-- Drizzle ORM
-- PostgreSQL
-- Better Auth Drizzle adapter
-
-Database client configuration lives in:
-
-```
-src/infrastructure/db/neon.ts    # production — Neon over HTTP
-src/infrastructure/db/pglite.ts  # tests — in-memory Postgres
-```
-
-`src/infrastructure/db/index.ts` picks between them based on the `DB_PROVIDER` binding (defaults to `neon`). The same pattern is used for `infrastructure/auth` (`AUTH_PROVIDER`) and `infrastructure/email` (`EMAIL_PROVIDER`).
-
-Schema definitions live in:
-
-```
-src/db/
-```
-
-The database layer handles:
-
-- Database client creation
-- ORM configuration
-- Connection management
-- Transactions
-
----
-
-# Middleware
-
-## Authentication Middleware
-
-`requireVerifiedApiKey`
-
-Responsibilities:
-
-- Read API key from request headers
-- Validate API key
-- Resolve owning user
-- Check email verification
-- Continue request
-
----
-
-## Error Middleware
-
-`src/middleware/errors.ts`
-
-Responsibilities:
-
-- Handle Hono exceptions
-- Return consistent API responses
-- Prevent leaking internal details
-
-Client errors:
-
-```json
-{
-  "error": "Invalid API Key"
-}
-```
-
-Internal errors:
-
-```json
-{
-  "error": "Internal Server Error"
-}
-```
-
-Internal details are never exposed:
-
-- Database errors
-- Stack traces
-- Secrets
-- Internal URLs
-
-They are logged server-side only.
-
----
-
-# Testing Strategy
-
-Tests focus on real application behavior while replacing external boundaries.
-
-Production:
-
-```
-Application
-    |
-    v
-Infrastructure
-    |
-    v
-External Services
-```
-
-Tests:
-
-```
-Application
-    |
-    v
-Test Fixtures
-    |
-    v
-Local Test Environment
-```
-
----
-
-## Test Helpers
-
-Test helpers replace external services, not application code — no `vi.mock`.
-
-```
-src/helpers/test/
-├── better-auth.ts # makeUser, makeKey — real signups against Better Auth + pglite
-└── pglite.ts      # resetDatabase — drops and re-migrates the in-memory Postgres schema
-```
-
-`DB_PROVIDER=pglite` (set in `.env.test`) makes `infrastructure/db` resolve to the pglite client automatically, so tests exercise the real Drizzle adapter and real Better Auth flows against a real (in-memory) database.
-
-This allows testing real authentication flows without external services.
-
----
-
-# Database Testing
-
-Tests use an isolated database environment.
-
-Typical flow:
-
-```
-Before test
-    |
-    v
-Reset database
-    |
-    v
-Run migrations
-    |
-    v
-Execute test
-```
-
-Benefits:
-
-- Deterministic tests
-- No shared state
-- Real database behavior
-
----
-
-# Error Handling
-
-The API follows a consistent error strategy.
-
-## Client Errors
-
-Examples:
-
-- Missing API key
-- Invalid API key
-- Unauthorized requests
-
-Response:
-
-```json
-{
-  "error": "message"
-}
-```
-
----
-
-## Server Errors
-
-Internal failures return:
-
-```json
-{
-  "error": "Internal Server Error"
-}
-```
-
-The API never exposes:
-
-- Stack traces
-- Database errors
-- Secrets
-- Internal implementation details
-
----
-
-# Environment Configuration
-
-For local dev, copy `.env.example` to `.env` and fill in real values — `.env` is gitignored.
-
-Environment variables are typed as the `Bindings` type in `src/env.ts` — that file is the source of truth for what's available, don't duplicate the list here.
-
-Runtime configuration is provided through Hono bindings (`c.env`) and passed explicitly into infrastructure modules (e.g. `db(env)`, `auth(env)`) — never read from `process.env` directly outside `src/env.ts`.
-
----
-
-# Development Philosophy
-
-This template favors:
-
-- Explicit dependencies
-- Small modules
-- Clear boundaries
-- Production-like tests
-- Minimal abstraction
-
-Avoid:
-
-- Business logic inside routes
-- Hidden dependencies
-- Over-mocking
-- Premature abstractions
-
-The goal is to keep the system simple while allowing it to scale as the project grows.
+Or via the root `docker-compose.yml`, which also wires `demo-web`.
